@@ -124,13 +124,13 @@ All endpoints require `X-API-Key` header.
 ## Environment Variables
 
 ### Server (Railway)
-- `BUG_REPORTS_API_KEY` - API key for authentication
+- BUG_REPORTS_API_KEY="d32dii23j8fuhducfi2uehr7f349023jd" - API key for authentication
 - `DATABASE_URL` - PostgreSQL connection string (auto-set by Railway)
 - `PORT` - Server port (auto-set by Railway)
 
 ### MCP Server
 - `BUG_REPORTS_API_URL` - Your Railway server URL
-- `BUG_REPORTS_API_KEY` - Same API key as server
+- BUG_REPORTS_API_KEY="d32dii23j8fuhducfi2uehr7f349023jd" - Same API key as server
 
 ## Development
 
