@@ -1,0 +1,15 @@
+{
+  "name": "browserbug",
+  "version": "1.0.0",
+  "description": "Browser Bug Reporter System - Capture browser logs and debug with Claude Code",
+  "private": true,
+  "workspaces": [
+    "server",
+    "mcp-server"
+  ],
+  "scripts": {
+    "server": "npm run start --workspace=server",
+    "server:dev": "npm run dev --workspace=server",
+    "mcp": "node mcp-server/index.js"
+  }
+}
