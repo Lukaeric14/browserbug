@@ -64,22 +64,11 @@ reportBtn.addEventListener('click', async () => {
       throw new Error('No active tab found');
     }
 
-    // Inject content script and capture logs
+    // Get logs from content script via message
     let capturedData = { consoleLogs: [], networkErrors: [] };
 
     try {
-      // Inject the content script to get captured logs
-      const results = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => {
-          // Get logs from window if our content script has been collecting them
-          return window.__bugReporterLogs || { consoleLogs: [], networkErrors: [] };
-        }
-      });
-
-      if (results && results[0] && results[0].result) {
-        capturedData = results[0].result;
-      }
+      capturedData = await chrome.tabs.sendMessage(tab.id, { type: 'GET_LOGS' });
     } catch (e) {
       console.log('Could not get logs from page:', e.message);
     }
@@ -127,17 +116,4 @@ reportBtn.addEventListener('click', async () => {
   }
 });
 
-// Inject content script on popup open to start capturing logs
-chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
-  if (tabs[0]) {
-    try {
-      await chrome.scripting.executeScript({
-        target: { tabId: tabs[0].id },
-        files: ['content.js']
-      });
-    } catch (e) {
-      // Script might already be injected or page doesn't allow it
-      console.log('Could not inject content script:', e.message);
-    }
-  }
-});
+// Content script is now automatically injected via manifest.json

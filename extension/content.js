@@ -1,19 +1,27 @@
 // Content script to capture console logs and network errors
-// This runs in the context of the web page
+// This runs in the MAIN world (page context) via script injection
 
 (function() {
   // Prevent multiple injections
   if (window.__bugReporterInitialized) return;
   window.__bugReporterInitialized = true;
 
-  // Storage for captured data
-  window.__bugReporterLogs = {
+  const MAX_LOGS = 100;
+  const MAX_MESSAGE_LENGTH = 5000;
+
+  // Local storage for logs (also accessible via window.__bugReporterLogs)
+  const logs = {
     consoleLogs: [],
     networkErrors: []
   };
+  window.__bugReporterLogs = logs;
 
-  const MAX_LOGS = 100;
-  const MAX_MESSAGE_LENGTH = 5000;
+  // Helper to send log to injector (ISOLATED world)
+  function sendToInjector(type, data) {
+    window.dispatchEvent(new CustomEvent('__bugReporterLog', {
+      detail: { type, data }
+    }));
+  }
 
   // Helper to truncate long messages
   function truncate(str, maxLen) {
@@ -28,18 +36,6 @@
       return str.substring(0, maxLen) + '... [truncated]';
     }
     return str;
-  }
-
-  // Helper to serialize error objects
-  function serializeError(error) {
-    if (error instanceof Error) {
-      return {
-        name: error.name,
-        message: error.message,
-        stack: error.stack
-      };
-    }
-    return error;
   }
 
   // Helper to format console arguments
@@ -84,16 +80,17 @@
       if (level === 'error') {
         const stack = new Error().stack;
         if (stack) {
-          entry.stack = stack.split('\n').slice(2).join('\n'); // Remove Error and this function
+          entry.stack = stack.split('\n').slice(2).join('\n');
         }
       }
 
-      window.__bugReporterLogs.consoleLogs.push(entry);
-
-      // Keep only last MAX_LOGS entries
-      if (window.__bugReporterLogs.consoleLogs.length > MAX_LOGS) {
-        window.__bugReporterLogs.consoleLogs.shift();
+      logs.consoleLogs.push(entry);
+      if (logs.consoleLogs.length > MAX_LOGS) {
+        logs.consoleLogs.shift();
       }
+
+      // Send to injector
+      sendToInjector('console', entry);
     };
   }
 
@@ -119,11 +116,11 @@
       entry.stack = event.error.stack;
     }
 
-    window.__bugReporterLogs.consoleLogs.push(entry);
-
-    if (window.__bugReporterLogs.consoleLogs.length > MAX_LOGS) {
-      window.__bugReporterLogs.consoleLogs.shift();
+    logs.consoleLogs.push(entry);
+    if (logs.consoleLogs.length > MAX_LOGS) {
+      logs.consoleLogs.shift();
     }
+    sendToInjector('console', entry);
   });
 
   // Capture unhandled promise rejections
@@ -138,11 +135,11 @@
       entry.stack = event.reason.stack;
     }
 
-    window.__bugReporterLogs.consoleLogs.push(entry);
-
-    if (window.__bugReporterLogs.consoleLogs.length > MAX_LOGS) {
-      window.__bugReporterLogs.consoleLogs.shift();
+    logs.consoleLogs.push(entry);
+    if (logs.consoleLogs.length > MAX_LOGS) {
+      logs.consoleLogs.shift();
     }
+    sendToInjector('console', entry);
   });
 
   // Capture network errors by overriding fetch
@@ -157,35 +154,36 @@
 
       // Capture failed requests (4xx and 5xx)
       if (!response.ok) {
-        window.__bugReporterLogs.networkErrors.push({
+        const entry = {
           url: truncate(url, 500),
           method: method,
           status: response.status,
           statusText: response.statusText,
           duration: Date.now() - startTime,
           timestamp: new Date().toISOString()
-        });
-
-        if (window.__bugReporterLogs.networkErrors.length > MAX_LOGS) {
-          window.__bugReporterLogs.networkErrors.shift();
+        };
+        logs.networkErrors.push(entry);
+        if (logs.networkErrors.length > MAX_LOGS) {
+          logs.networkErrors.shift();
         }
+        sendToInjector('network', entry);
       }
 
       return response;
     } catch (error) {
-      // Capture network errors (connection refused, CORS, etc)
-      window.__bugReporterLogs.networkErrors.push({
+      const entry = {
         url: truncate(url, 500),
         method: method,
         status: 0,
         error: error.message,
         duration: Date.now() - startTime,
         timestamp: new Date().toISOString()
-      });
-
-      if (window.__bugReporterLogs.networkErrors.length > MAX_LOGS) {
-        window.__bugReporterLogs.networkErrors.shift();
+      };
+      logs.networkErrors.push(entry);
+      if (logs.networkErrors.length > MAX_LOGS) {
+        logs.networkErrors.shift();
       }
+      sendToInjector('network', entry);
 
       throw error;
     }
@@ -206,18 +204,19 @@
 
       this.addEventListener('loadend', () => {
         if (this.status >= 400 || this.status === 0) {
-          window.__bugReporterLogs.networkErrors.push({
+          const entry = {
             url: truncate(this._bugReporter.url, 500),
             method: this._bugReporter.method,
             status: this.status,
             statusText: this.statusText || 'Network Error',
             duration: Date.now() - this._bugReporter.startTime,
             timestamp: new Date().toISOString()
-          });
-
-          if (window.__bugReporterLogs.networkErrors.length > MAX_LOGS) {
-            window.__bugReporterLogs.networkErrors.shift();
+          };
+          logs.networkErrors.push(entry);
+          if (logs.networkErrors.length > MAX_LOGS) {
+            logs.networkErrors.shift();
           }
+          sendToInjector('network', entry);
         }
       });
     }
@@ -225,6 +224,6 @@
     return originalXHRSend.apply(this, args);
   };
 
-  // Log that we're capturing
+  // Log that we're capturing (using original to avoid self-capture noise)
   originalConsole.log('[Bug Reporter] Capturing console logs and network errors...');
 })();
