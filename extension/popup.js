@@ -22,7 +22,7 @@ toggleSettingsLink.addEventListener('click', (e) => {
 
 // Save settings
 saveSettingsBtn.addEventListener('click', () => {
-  const apiUrl = apiUrlInput.value.trim().replace(/\/$/, ''); // Remove trailing slash
+  const apiUrl = apiUrlInput.value.trim().replace(/\/$/, '');
   const apiKey = apiKeyInput.value.trim();
 
   chrome.storage.sync.set({ apiUrl, apiKey }, () => {
@@ -35,6 +35,7 @@ saveSettingsBtn.addEventListener('click', () => {
 function showStatus(message, type) {
   statusDiv.textContent = message;
   statusDiv.className = type;
+  statusDiv.style.display = 'block';
 }
 
 function hideStatus() {
@@ -44,7 +45,6 @@ function hideStatus() {
 
 // Report bug
 reportBtn.addEventListener('click', async () => {
-  // Get settings
   const settings = await chrome.storage.sync.get(['apiUrl', 'apiKey']);
 
   if (!settings.apiUrl || !settings.apiKey) {
@@ -54,7 +54,7 @@ reportBtn.addEventListener('click', async () => {
   }
 
   reportBtn.disabled = true;
-  showStatus('Capturing browser state...', 'loading');
+  showStatus('Attaching debugger to capture logs...', 'loading');
 
   try {
     // Get current tab
@@ -64,14 +64,24 @@ reportBtn.addEventListener('click', async () => {
       throw new Error('No active tab found');
     }
 
-    // Get logs from content script via message
-    let capturedData = { consoleLogs: [], networkErrors: [] };
-
-    try {
-      capturedData = await chrome.tabs.sendMessage(tab.id, { type: 'GET_LOGS' });
-    } catch (e) {
-      console.log('Could not get logs from page:', e.message);
+    if (!tab.url || (!tab.url.startsWith('http://') && !tab.url.startsWith('https://'))) {
+      throw new Error('Cannot capture logs on this page (extension/chrome pages not supported)');
     }
+
+    // Request logs from background script via debugger API
+    const capturedData = await chrome.runtime.sendMessage({
+      type: 'CAPTURE_LOGS',
+      tabId: tab.id
+    });
+
+    if (capturedData.error) {
+      throw new Error(capturedData.error);
+    }
+
+    console.log('[Bug Reporter] Captured:', {
+      consoleLogs: capturedData.consoleLogs?.length || 0,
+      networkErrors: capturedData.networkErrors?.length || 0
+    });
 
     // Extract projectId from URL
     const url = new URL(tab.url);
@@ -105,15 +115,19 @@ reportBtn.addEventListener('click', async () => {
     }
 
     const result = await response.json();
-    showStatus(`Bug reported! ID: ${result.id}`, 'success');
+
+    // Show success with log counts
+    const logCount = bugReport.consoleLogs.length;
+    const networkCount = bugReport.networkErrors.length;
+    let successMsg = `Bug reported! ID: ${result.id}`;
+    successMsg += ` (${logCount} console logs, ${networkCount} network errors)`;
+    showStatus(successMsg, 'success');
     userNoteInput.value = '';
 
   } catch (error) {
-    console.error('Error reporting bug:', error);
+    console.error('[Bug Reporter] Error:', error);
     showStatus(`Error: ${error.message}`, 'error');
   } finally {
     reportBtn.disabled = false;
   }
 });
-
-// Content script is now automatically injected via manifest.json
